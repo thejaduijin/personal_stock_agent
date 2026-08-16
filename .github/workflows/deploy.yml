@@ -60,7 +60,8 @@ jobs:
       - name: Run Stock Agent Pipeline
         run: |
           echo "Starting Stock Dashboard Pipeline..."
-          python app.py --cli --mode live --source excel --provider ${{ secrets.LLM_PROVIDER || 'openai' }}
+          # Try excel source first, fallback to manual (universe.json) if no Excel file
+          python app.py --cli --mode live --source excel --provider ${{ secrets.LLM_PROVIDER || 'openai' }} ||           python app.py --cli --mode live --source manual --provider ${{ secrets.LLM_PROVIDER || 'openai' }}
           echo "Pipeline completed!"
 
       - name: Generate static dashboard
