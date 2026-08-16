@@ -555,11 +555,17 @@ def run_cli(mode="live", provider=None, source="excel"):
 
     # Refresh data source
     if source == "excel":
+        google_ok = False
         try:
-            refresh_excel_universe_from_google()
-            print(f"✅ Google Sheets refreshed: {len(EXCEL_UNIVERSE['tickers'])} tickers")
+            google_ok = refresh_excel_universe_from_google()
+            if google_ok and EXCEL_UNIVERSE:
+                print(f"✅ Google Sheets refreshed: {len(EXCEL_UNIVERSE['tickers'])} tickers")
+            else:
+                print("⚠️ Google Sheets returned empty / unavailable")
         except Exception as e:
             print(f"⚠️ Google Sheets failed: {e}")
+
+        if not google_ok or not EXCEL_UNIVERSE:
             if not refresh_excel_universe_from_workbook():
                 print("❌ No Excel fallback available. Exiting.")
                 sys.exit(1)
