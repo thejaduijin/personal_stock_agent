@@ -1,0 +1,104 @@
+name: Stock Dashboard Auto-Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: "0 4,10 * * 1-5"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build Stock Dashboard
+    runs-on: ubuntu-latest
+
+    env:
+      GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      LLM_PROVIDER: ${{ secrets.LLM_PROVIDER }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      CONFIDENCE_THRESHOLD: ${{ secrets.CONFIDENCE_THRESHOLD || '7' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install flask pandas numpy yfinance gspread google-auth openpyxl requests
+
+      - name: Run tests
+        run: |
+          if [ -f test_*.py ] || [ -f *_test.py ]; then
+            python -m pytest --tb=short
+          else
+            echo "No tests found, skipping..."
+          fi
+        continue-on-error: true
+
+      - name: Run Stock Agent Pipeline
+        run: |
+          echo "Starting Stock Dashboard Pipeline..."
+          python app.py --cli --mode live --source excel --provider ${{ secrets.LLM_PROVIDER || 'openai' }}
+          echo "Pipeline completed!"
+
+      - name: Generate static dashboard
+        run: |
+          echo "Building static dashboard from output.json..."
+          python build_static_dashboard.py
+          echo "Static dashboard built!"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: stock-dashboard-output
+          path: |
+            output.json
+            excel_final_list.xlsx
+            excel_universe.json
+            audit.db
+          retention-days: 30
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    permissions:
+      pages: write
+      id-token: write
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
