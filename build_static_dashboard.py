@@ -79,7 +79,6 @@ def generate_static_html(data):
     in_debate = kpi.get("in_debate", 0)
     buy_signals = kpi.get("buy_signals", 0)
 
-    # Build the HTML with the search section embedded
     parts = []
     parts.append('<!DOCTYPE html>')
     parts.append('<html lang="en">')
@@ -275,12 +274,29 @@ def generate_static_html(data):
     parts.append('    </div>')
     parts.append('  </div>')
 
-    # JavaScript for client-side search
+    # JavaScript - using a more reliable approach with multiple proxy fallbacks
     parts.append('  <script>')
     parts.append('    function showLoading() { document.getElementById("loading").style.display = "block"; document.getElementById("results").style.display = "none"; document.getElementById("searchError").style.display = "none"; document.getElementById("searchInfo").style.display = "none"; document.getElementById("searchBtn").disabled = true; }')
     parts.append('    function hideLoading() { document.getElementById("loading").style.display = "none"; document.getElementById("searchBtn").disabled = false; }')
     parts.append('    function showError(msg) { var el = document.getElementById("searchError"); el.textContent = msg; el.style.display = "block"; hideLoading(); }')
     parts.append('    function showInfo(msg) { var el = document.getElementById("searchInfo"); el.textContent = msg; el.style.display = "block"; }')
+
+    parts.append('    async function fetchWithProxy(symbol) {')
+    parts.append('      var proxies = [')
+    parts.append('        "https://api.allorigins.win/raw?url=",')
+    parts.append('        "https://corsproxy.io/?",')
+    parts.append('        "https://api.codetabs.com/v1/proxy?quest="')
+    parts.append('      ];')
+    parts.append('      var yahooUrl = encodeURIComponent("https://query1.finance.yahoo.com/v8/finance/chart/" + symbol + "?interval=1d&range=1mo");')
+    parts.append('      var lastError = null;')
+    parts.append('      for (var i = 0; i < proxies.length; i++) {')
+    parts.append('        try {')
+    parts.append('          var res = await fetch(proxies[i] + yahooUrl, { method: "GET", mode: "cors" });')
+    parts.append('          if (res.ok) return await res.json();')
+    parts.append('        } catch(e) { lastError = e; }')
+    parts.append('      }')
+    parts.append('      throw lastError || new Error("All CORS proxies failed");')
+    parts.append('    }')
 
     parts.append('    async function analyzeStock() {')
     parts.append('      var raw = document.getElementById("stockInput").value.trim().toUpperCase();')
@@ -288,11 +304,7 @@ def generate_static_html(data):
     parts.append('      var symbol = raw; if (!symbol.includes(".")) symbol = symbol + ".NS";')
     parts.append('      showLoading(); showInfo("Fetching data from Yahoo Finance...");')
     parts.append('      try {')
-    parts.append('        var proxyUrl = "https://api.allorigins.win/raw?url=";')
-    parts.append('        var yahooUrl = encodeURIComponent("https://query1.finance.yahoo.com/v8/finance/chart/" + symbol + "?interval=1d&range=1mo");')
-    parts.append('        var res = await fetch(proxyUrl + yahooUrl);')
-    parts.append('        if (!res.ok) throw new Error("Failed to fetch stock data");')
-    parts.append('        var data = await res.json();')
+    parts.append('        var data = await fetchWithProxy(symbol);')
     parts.append('        if (!data.chart || !data.chart.result || data.chart.result.length === 0) {')
     parts.append('          showError("Could not find data for " + symbol + ". Try adding .NS (e.g., RELIANCE.NS)"); return;')
     parts.append('        }')
@@ -326,7 +338,7 @@ def generate_static_html(data):
     parts.append('        };')
     parts.append('        var result_scores = evaluateDeterministic(evidence);')
     parts.append('        renderResults(evidence, result_scores);')
-    parts.append('      } catch(e) { showError("Failed: " + e.message); console.error(e); }')
+    parts.append('      } catch(e) { showError("Failed: " + (e.message || e)); console.error(e); }')
     parts.append('    }')
 
     parts.append('    function evaluateDeterministic(ev) {')
@@ -421,7 +433,7 @@ def main():
     print(f"   Universe: {data['kpi'].get('universe', 0)} stocks")
     print(f"   Verdicts: {len(data.get('verdicts', []))}")
     print(f"   BUY signals: {data['kpi'].get('buy_signals', 0)}")
-    print(f"   ✅ Includes client-side stock search!")
+    print(f"   ✅ Includes client-side stock search with multiple proxy fallbacks!")
 
 if __name__ == "__main__":
     main()
