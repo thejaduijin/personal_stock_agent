@@ -567,9 +567,10 @@ def run_cli(mode="live", provider=None, source="excel"):
 
         if not google_ok or not EXCEL_UNIVERSE:
             if not refresh_excel_universe_from_workbook():
-                print("❌ No Excel fallback available. Exiting.")
-                sys.exit(1)
-            print(f"✅ Excel fallback loaded: {len(EXCEL_UNIVERSE['tickers'])} tickers")
+                print("⚠️ No Excel fallback available. Auto-switching to manual source (universe.json).")
+                source = "manual"
+            else:
+                print(f"✅ Excel fallback loaded: {len(EXCEL_UNIVERSE['tickers'])} tickers")
 
     # Run pipeline synchronously
     success = run_pipeline(mode, provider=provider, source=source)
@@ -887,16 +888,63 @@ def search_stock():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=f"{BRAND} Stock Dashboard")
-    parser.add_argument("--cli", action="store_true", help="Run in CLI mode (GitHub Actions)")
+    parser.add_argument("--cli", action="store_true", help="Run full pipeline in CLI mode (GitHub Actions)")
     parser.add_argument("--mode", default="live", choices=["demo", "live"], help="Pipeline mode")
     parser.add_argument("--source", default="excel", choices=["manual", "excel"], help="Data source")
     parser.add_argument("--provider", default=None, help="LLM provider (openai/anthropic/claude_code)")
+    parser.add_argument("--symbol", default=None, help="Analyze a single stock symbol and exit (e.g., RELIANCE.NS)")
     args = parser.parse_args()
 
     init_db()
     load_excel_universe_from_disk()
 
-    if args.cli:
+    if args.symbol:
+        # Single stock analysis mode
+        print(f"\n{'='*60}")
+        print(f"  {BRAND} — Single Stock Analysis")
+        print(f"  Symbol: {args.symbol.upper()}")
+        print(f"{'='*60}\n")
+
+        symbol = args.symbol.upper()
+        if "." not in symbol:
+            symbol = symbol + ".NS"
+
+        try:
+            bundles = data_sources.build_bundles_for_tickers([symbol], cap_segment="individual")
+            if not bundles:
+                print(f"❌ Could not fetch data for {symbol}")
+                sys.exit(1)
+            evidence = bundles[0]
+
+            try:
+                result = llm.evaluate(evidence, provider=args.provider)
+                engine = result.get("_engine", "unknown")
+            except Exception as e:
+                import scoring
+                result = scoring.evaluate_deterministic(evidence)
+                result["_engine"] = "deterministic"
+                engine = "deterministic"
+
+            verdict = result.get("verdict", {})
+            scores = result.get("scores", {})
+            price = evidence.get("price", {})
+
+            print(f"📊 {symbol} — ₹{price.get('live', 'N/A')} ({price.get('day_change_pct', 'N/A')}%)")
+            print(f"🐂 Bull: {scores.get('bull', {}).get('score', 0)}/100")
+            print(f"🐻 Bear: {scores.get('bear', {}).get('score', 0)}/100")
+            print(f"⚖️  Verdict: {verdict.get('verdict', 'WATCH')} (confidence: {verdict.get('confidence', 0)}/10)")
+            print(f"📝 {verdict.get('rationale', '')}")
+            print(f"⚙️  Engine: {engine}")
+            print(f"\n{'='*60}")
+
+            v = verdict.get("verdict", "WATCH")
+            sys.exit(0 if v == "BUY" else (2 if v == "WATCH" else 1))
+
+        except Exception as e:
+            print(f"❌ Error analyzing {symbol}: {e}")
+            sys.exit(1)
+
+    elif args.cli:
         # CLI mode: run once and exit
         run_cli(mode=args.mode, provider=args.provider, source=args.source)
     else:
